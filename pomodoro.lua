@@ -3,6 +3,7 @@ obs = obslua
 -- ==== Defaults ====
 timer_source_name = "PomodoroTimer"
 status_source_name = ""
+session_source_name = ""
 focus_minutes = 25
 short_break_minutes = 5
 long_break_minutes = 15
@@ -41,8 +42,13 @@ color_long_break = 0xFF0000
 color_paused = 0xFFFFFF
 color_stopped = 0xAAAAAA
 
--- Auto-start
+-- Desktop notifications
+enable_notifications = true
+
+-- Auto-start / scene switching
 auto_scene_name = ""
+scene_on_break = ""
+scene_on_focus = ""
 
 -- State
 mode = "stopped"      -- "focus" | "short_break" | "long_break" | "paused" | "stopped"
@@ -119,15 +125,54 @@ local function current_label()
     else return stopped_message end
 end
 
-local function session_suffix()
+local function session_text()
     if not show_session_counter then return "" end
-    if mode == "long_break" then return " (Cycle Complete)" end
+    local m = (mode == "paused") and prev_mode or mode
+    if m == "stopped" or mode == "stopped" then return "" end
+    if m == "long_break" then return "Cycle Complete" end
     local idx = session_count
-    if mode == "focus" then idx = session_count + 1 end
+    if m == "focus" then idx = session_count + 1 end
     if sessions_before_long > 0 then
-        return string.format(" (%s %d of %d)", session_label, idx, sessions_before_long)
+        return string.format("%s %d of %d", session_label, idx, sessions_before_long)
     else
-        return string.format(" (%s %d)", session_label, idx)
+        return string.format("%s %d", session_label, idx)
+    end
+end
+
+-- ==== Desktop notifications ====
+local _platform = nil
+local function detect_platform()
+    if _platform then return _platform end
+    local f = io.popen("uname -s 2>/dev/null")
+    if f then
+        local s = (f:read("*l") or ""):lower(); f:close()
+        if s:find("darwin") then _platform = "mac"
+        elseif s ~= "" then _platform = "linux"
+        else _platform = "windows" end
+    else
+        _platform = "windows"
+    end
+    return _platform
+end
+
+local function send_notification(title, body)
+    if not enable_notifications then return end
+    local t = title:gsub('[\'"]', '')
+    local b = body:gsub('[\'"]', '')
+    local plat = detect_platform()
+    if plat == "mac" then
+        os.execute(string.format("osascript -e 'display notification \"%s\" with title \"%s\"' &", b, t))
+    elseif plat == "linux" then
+        os.execute(string.format('notify-send "%s" "%s" &', t, b))
+    else
+        local ps = string.format(
+            "Add-Type -AN System.Windows.Forms;" ..
+            "$n=New-Object System.Windows.Forms.NotifyIcon;" ..
+            "$n.Icon=[System.Drawing.SystemIcons]::Application;" ..
+            "$n.Visible=$true;" ..
+            "$n.ShowBalloonTip(8000,'%s','%s',[System.Windows.Forms.ToolTipIcon]::Info);" ..
+            "Start-Sleep 10;$n.Dispose()", t, b)
+        os.execute('start "" /b powershell -WindowStyle Hidden -NoProfile -Command "' .. ps .. '"')
     end
 end
 
@@ -187,6 +232,15 @@ local function play_cue_for_next(next_mode)
     end
 end
 
+local function switch_scene(name)
+    if not name or name == "" then return end
+    local src = obs.obs_get_source_by_name(name)
+    if src then
+        obs.obs_frontend_set_current_scene(src)
+        obs.obs_source_release(src)
+    end
+end
+
 -- ==== Core ====
 local function next_mode_after_current()
     if mode == "focus" then
@@ -203,7 +257,7 @@ local function push_display()
     if show_mode_label and (mode == "focus" or mode == "short_break" or mode == "long_break") then
         base = current_label() .. " " .. sep_char .. " " .. base
     end
-    if mode ~= "stopped" and mode ~= "paused" then base = base .. session_suffix() end
+    if session_source_name ~= "" then set_text(session_source_name, session_text()) end
     if show_start_time and session_start_time > 0 and mode ~= "stopped" and mode ~= "paused" then
         local start_txt = string.format("%s %s", start_time_label, fmt_clock(session_start_time))
         if end_time_inline then
@@ -241,11 +295,23 @@ end
 local function end_of_segment()
     if mode == "focus" then
         session_count = session_count + 1
-        if sessions_before_long > 0 and (session_count % sessions_before_long == 0) then set_mode("long_break") else set_mode("short_break") end
+        if sessions_before_long > 0 and (session_count % sessions_before_long == 0) then
+            send_notification("Pomodoro Timer", string.format("Cycle complete! Long break: %d min", long_break_minutes))
+            switch_scene(scene_on_break)
+            set_mode("long_break")
+        else
+            send_notification("Pomodoro Timer", string.format("Session %d done! Short break: %d min", session_count, short_break_minutes))
+            switch_scene(scene_on_break)
+            set_mode("short_break")
+        end
     elseif mode == "long_break" then
         session_count = 0
+        send_notification("Pomodoro Timer", "Break over — focus time! Session 1 starting.")
+        switch_scene(scene_on_focus)
         set_mode("focus")
     else
+        send_notification("Pomodoro Timer", string.format("Break over — Session %d starting!", session_count + 1))
+        switch_scene(scene_on_focus)
         set_mode("focus")
     end
 end
@@ -291,6 +357,7 @@ function script_properties()
     local p = obs.obs_properties_create()
     obs.obs_properties_add_text(p, "timer_source_name", "Timer Source", obs.OBS_TEXT_DEFAULT)
     obs.obs_properties_add_text(p, "status_source_name", "Status Source", obs.OBS_TEXT_DEFAULT)
+    obs.obs_properties_add_text(p, "session_source_name", "Session Label Source", obs.OBS_TEXT_DEFAULT)
     obs.obs_properties_add_int(p, "focus_minutes", "Focus (min)", 1, 240, 1)
     obs.obs_properties_add_int(p, "short_break_minutes", "Short Break (min)", 1, 120, 1)
     obs.obs_properties_add_int(p, "long_break_minutes", "Long Break (min)", 1, 240, 1)
@@ -308,6 +375,8 @@ function script_properties()
     obs.obs_properties_add_text(p, "sep_char", "Separator", obs.OBS_TEXT_DEFAULT)
     obs.obs_properties_add_bool(p, "use_24h", "Use 24h clock")
 
+    obs.obs_properties_add_bool(p, "enable_notifications", "Enable desktop notifications")
+
     obs.obs_properties_add_bool(p, "enable_sounds", "Enable Sounds")
     obs.obs_properties_add_path(p, "sound_focus_file", "Sound: Focus", obs.OBS_PATH_FILE, "*.mp3;*.wav", nil)
     obs.obs_properties_add_path(p, "sound_short_file", "Sound: Short Break", obs.OBS_PATH_FILE, "*.mp3;*.wav", nil)
@@ -320,6 +389,8 @@ function script_properties()
     obs.obs_properties_add_color(p, "color_stopped", "Color: Stopped")
 
     obs.obs_properties_add_text(p, "auto_scene_name", "Auto-start on Scene", obs.OBS_TEXT_DEFAULT)
+    obs.obs_properties_add_text(p, "scene_on_break", "Switch scene on Break", obs.OBS_TEXT_DEFAULT)
+    obs.obs_properties_add_text(p, "scene_on_focus", "Switch scene on Focus", obs.OBS_TEXT_DEFAULT)
 
     obs.obs_properties_add_button(p, "btn_start", "▶ Start", start_pressed)
     obs.obs_properties_add_button(p, "btn_pause", "⏸ Pause", pause_pressed)
@@ -330,8 +401,9 @@ function script_properties()
 end
 
 function script_update(s)
-    timer_source_name = obs.obs_data_get_string(s, "timer_source_name")
-    status_source_name= obs.obs_data_get_string(s, "status_source_name")
+    timer_source_name    = obs.obs_data_get_string(s, "timer_source_name")
+    status_source_name   = obs.obs_data_get_string(s, "status_source_name")
+    session_source_name  = obs.obs_data_get_string(s, "session_source_name")
 
     focus_minutes = math.max(1, obs.obs_data_get_int(s, "focus_minutes"))
     short_break_minutes = math.max(1, obs.obs_data_get_int(s, "short_break_minutes"))
@@ -350,6 +422,8 @@ function script_update(s)
     sep_char = obs.obs_data_get_string(s, "sep_char"); if sep_char == "" then sep_char = "•" end
     use_24h = obs.obs_data_get_bool(s, "use_24h")
 
+    enable_notifications = obs.obs_data_get_bool(s, "enable_notifications")
+
     enable_sounds = obs.obs_data_get_bool(s, "enable_sounds")
     sound_focus_file = obs.obs_data_get_string(s, "sound_focus_file")
     sound_short_file = obs.obs_data_get_string(s, "sound_short_file")
@@ -362,6 +436,8 @@ function script_update(s)
     color_stopped= obs.obs_data_get_int(s, "color_stopped")
 
     auto_scene_name = obs.obs_data_get_string(s, "auto_scene_name")
+    scene_on_break  = obs.obs_data_get_string(s, "scene_on_break")
+    scene_on_focus  = obs.obs_data_get_string(s, "scene_on_focus")
 
     rebuild_sound_sources()
     push_display()
