@@ -8,17 +8,18 @@ focus_minutes = 25
 short_break_minutes = 5
 long_break_minutes = 15
 sessions_before_long = 4
+daily_sessions = 0
 show_mode_label = true
 show_session_counter = true
 session_label = "Session"
-focus_message = "Focus Time!"
-short_break_message = "Short Break!"
-long_break_message = "Long Break!"
+focus_message = "Focus"
+short_break_message = "Short Break"
+long_break_message = "Long Break"
 stopped_message = "Timer Stopped"
 paused_message = "Paused"
-label_focus = "🧠 FOCUS"
-label_short_break = "☕ BREAK"
-label_long_break = "🛌 LONG BREAK"
+label_focus = "FOCUS"
+label_short_break = "BREAK"
+label_long_break = "LONG BREAK"
 
 -- Start/end time display
 show_start_time = true
@@ -70,7 +71,7 @@ hk_resume= obs.OBS_INVALID_HOTKEY_ID
 hk_reset = obs.OBS_INVALID_HOTKEY_ID
 hk_skip  = obs.OBS_INVALID_HOTKEY_ID
 
--- ==== Utils ====
+-- Utils 
 local function file_exists(path)
     if not path or path == "" then return false end
     local f = io.open(path, "rb")
@@ -129,17 +130,18 @@ local function session_text()
     if not show_session_counter then return "" end
     local m = (mode == "paused") and prev_mode or mode
     if m == "stopped" or mode == "stopped" then return "" end
-    if m == "long_break" then return "Cycle Complete" end
+    if m == "long_break" and daily_sessions == 0 then return "Cycle Complete" end
     local idx = session_count
     if m == "focus" then idx = session_count + 1 end
-    if sessions_before_long > 0 then
-        return string.format("%s %d of %d", session_label, idx, sessions_before_long)
+    local total = daily_sessions > 0 and daily_sessions or sessions_before_long
+    if total > 0 then
+        return string.format("%s %d of %d", session_label, idx, total)
     else
         return string.format("%s %d", session_label, idx)
     end
 end
 
--- ==== Desktop notifications ====
+-- Desktop notifications
 local _platform = nil
 local function detect_platform()
     if _platform then return _platform end
@@ -176,7 +178,7 @@ local function send_notification(title, body)
     end
 end
 
--- ==== Sounds (non-blocking) ====
+-- Sounds 
 local function release_sound_sources()
     if src_focus then obs.obs_source_release(src_focus); src_focus = nil end
     if src_short then obs.obs_source_release(src_short); src_short = nil end
@@ -241,7 +243,7 @@ local function switch_scene(name)
     end
 end
 
--- ==== Core ====
+-- Core 
 local function next_mode_after_current()
     if mode == "focus" then
         local next_s = session_count + 1
@@ -305,8 +307,9 @@ local function end_of_segment()
             set_mode("short_break")
         end
     elseif mode == "long_break" then
-        session_count = 0
-        send_notification("Pomodoro Timer", "Break over — focus time! Session 1 starting.")
+        if daily_sessions == 0 then session_count = 0 end
+        local next_s = session_count + 1
+        send_notification("Pomodoro Timer", string.format("Break over — focus time! Session %d starting.", next_s))
         switch_scene(scene_on_focus)
         set_mode("focus")
     else
@@ -326,7 +329,7 @@ local function tick()
     if time_left <= 0 then end_of_segment() else push_display() end
 end
 
--- ==== Controls ====
+-- Controls 
 function start_pressed(pressed)
     if not pressed then return end
     timer_running = true
@@ -352,7 +355,7 @@ function skip_pressed(pressed)
     if pressed and timer_running then end_of_segment(); push_display() end
 end
 
--- ==== OBS UI ====
+-- OBS UI 
 function script_properties()
     local p = obs.obs_properties_create()
     obs.obs_properties_add_text(p, "timer_source_name", "Timer Source", obs.OBS_TEXT_DEFAULT)
@@ -362,6 +365,7 @@ function script_properties()
     obs.obs_properties_add_int(p, "short_break_minutes", "Short Break (min)", 1, 120, 1)
     obs.obs_properties_add_int(p, "long_break_minutes", "Long Break (min)", 1, 240, 1)
     obs.obs_properties_add_int(p, "sessions_before_long", "Sessions before Long Break", 1, 24, 1)
+    obs.obs_properties_add_int(p, "daily_sessions", "Daily session goal (0 = off)", 0, 99, 1)
 
     obs.obs_properties_add_bool(p, "show_mode_label", "Show mode label")
     obs.obs_properties_add_bool(p, "show_session_counter", "Show session counter")
@@ -409,6 +413,7 @@ function script_update(s)
     short_break_minutes = math.max(1, obs.obs_data_get_int(s, "short_break_minutes"))
     long_break_minutes  = math.max(1, obs.obs_data_get_int(s, "long_break_minutes"))
     sessions_before_long= math.max(1, obs.obs_data_get_int(s, "sessions_before_long"))
+    daily_sessions      = math.max(0, obs.obs_data_get_int(s, "daily_sessions"))
 
     show_mode_label = obs.obs_data_get_bool(s, "show_mode_label")
     show_session_counter = obs.obs_data_get_bool(s, "show_session_counter")
@@ -443,7 +448,7 @@ function script_update(s)
     push_display()
 end
 
--- ==== Hotkeys ====
+-- Hotkeys 
 local function hk_load(settings, id, name)
     local arr = obs.obs_data_get_array(settings, name)
     obs.obs_hotkey_load(id, arr)
@@ -492,4 +497,3 @@ end
 function script_unload()
     release_sound_sources()
 end
-
