@@ -47,6 +47,7 @@ color_stopped = 0xAAAAAA
 enable_notifications = true
 
 -- Auto-start / scene switching
+auto_start_on_stream = false
 auto_scene_name = ""
 scene_on_break = ""
 scene_on_focus = ""
@@ -392,6 +393,7 @@ function script_properties()
     obs.obs_properties_add_color(p, "color_paused", "Color: Paused")
     obs.obs_properties_add_color(p, "color_stopped", "Color: Stopped")
 
+    obs.obs_properties_add_bool(p, "auto_start_on_stream", "Auto-start when stream begins")
     obs.obs_properties_add_text(p, "auto_scene_name", "Auto-start on Scene", obs.OBS_TEXT_DEFAULT)
     obs.obs_properties_add_text(p, "scene_on_break", "Switch scene on Break", obs.OBS_TEXT_DEFAULT)
     obs.obs_properties_add_text(p, "scene_on_focus", "Switch scene on Focus", obs.OBS_TEXT_DEFAULT)
@@ -440,6 +442,7 @@ function script_update(s)
     color_paused = obs.obs_data_get_int(s, "color_paused")
     color_stopped= obs.obs_data_get_int(s, "color_stopped")
 
+    auto_start_on_stream = obs.obs_data_get_bool(s, "auto_start_on_stream")
     auto_scene_name = obs.obs_data_get_string(s, "auto_scene_name")
     scene_on_break  = obs.obs_data_get_string(s, "scene_on_break")
     scene_on_focus  = obs.obs_data_get_string(s, "scene_on_focus")
@@ -475,6 +478,9 @@ function script_load(settings)
     hk_load(settings, hk_skip,  "pomo_skip")
 
     obs.obs_frontend_add_event_callback(function(ev)
+        if ev == obs.OBS_FRONTEND_EVENT_STREAMING_STARTED and auto_start_on_stream and not timer_running then
+            start_pressed(true)
+        end
         if ev == obs.OBS_FRONTEND_EVENT_SCENE_CHANGED and auto_scene_name ~= "" then
             local cur = obs.obs_frontend_get_current_scene()
             if cur then

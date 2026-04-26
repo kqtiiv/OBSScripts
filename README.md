@@ -28,10 +28,13 @@
 **Sounds**
 - In each Focus, Short Break, Long Break session, upload a sound file to play a sound at the end of each segment.
 
+**Auto-start**
+- **Auto-start when stream begins** — tick this and the timer starts automatically whenever you go live
+- **Auto-start on Scene** — starts the timer when you switch to a specific named scene instead
+
 **Scene switching**
-- **Auto-start on Scene** — starts the timer automatically when you switch to a named scene
 - **Switch scene on Break** — switches to a named scene whenever a break begins
-- **Switch scene on Focus** — switches to a named scene on focus
+- **Switch scene on Focus** — switches to a named scene whenever focus resumes
 
 ## Controls
 
