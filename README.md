@@ -34,13 +34,17 @@
 **Sounds** ʚɞ
 : In each Focus, Short Break, Long Break session, upload a sound file to play a sound at the end of each segment.
 
+**Starting Soon** ʚɞ
+: **Starting Soon duration (min)** — how long the pre-stream countdown runs before focus begins (default 10)
+: **Starting Soon scene** — scene to switch to when Start is pressed; when the countdown ends it automatically moves to the Focus scene
+
 **Auto-start** ʚɞ
 : **Auto-start when stream begins** — tick this and the timer starts automatically whenever you go live
 : **Auto-start on Scene** — starts the timer when you switch to a specific named scene instead
 
 **Scene switching** ʚɞ
 : **Switch scene on Break** — switches to a named scene whenever a break begins
-: **Switch scene on Focus** — switches to a named scene whenever focus resumes
+: **Switch scene on Focus** — switches to a named scene whenever focus begins (also used when Starting Soon ends)
 
 ꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦
 

@@ -52,8 +52,15 @@ auto_scene_name = ""
 scene_on_break = ""
 scene_on_focus = ""
 
+-- Starting soon
+starting_soon_minutes = 10
+scene_starting_soon = ""
+label_starting_soon = "STARTING SOON"
+starting_soon_message = "Starting Soon"
+color_starting_soon = 0x00AAFF
+
 -- State
-mode = "stopped"      -- "focus" | "short_break" | "long_break" | "paused" | "stopped"
+mode = "stopped"      -- "starting_soon" | "focus" | "short_break" | "long_break" | "paused" | "stopped"
 prev_mode = "focus"
 time_left = 0
 session_count = 0
@@ -120,7 +127,8 @@ local function fmt_clock(ts)
 end
 
 local function current_label()
-    if mode == "focus" then return label_focus
+    if mode == "starting_soon" then return label_starting_soon
+    elseif mode == "focus" then return label_focus
     elseif mode == "short_break" then return label_short_break
     elseif mode == "long_break" then return label_long_break
     elseif mode == "paused" then return paused_message
@@ -130,7 +138,7 @@ end
 local function session_text()
     if not show_session_counter then return "" end
     local m = (mode == "paused") and prev_mode or mode
-    if m == "stopped" or mode == "stopped" then return "" end
+    if m == "stopped" or mode == "stopped" or m == "starting_soon" then return "" end
     if m == "long_break" and daily_sessions == 0 then return "Cycle Complete" end
     local idx = session_count
     if m == "focus" then idx = session_count + 1 end
@@ -246,7 +254,8 @@ end
 
 -- Core 
 local function next_mode_after_current()
-    if mode == "focus" then
+    if mode == "starting_soon" then return "focus"
+    elseif mode == "focus" then
         local next_s = session_count + 1
         if sessions_before_long > 0 and (next_s % sessions_before_long == 0) then return "long_break" else return "short_break" end
     elseif mode == "short_break" or mode == "long_break" then
@@ -257,7 +266,7 @@ end
 
 local function push_display()
     local base = fmt_mmss(time_left)
-    if show_mode_label and (mode == "focus" or mode == "short_break" or mode == "long_break") then
+    if show_mode_label and (mode == "starting_soon" or mode == "focus" or mode == "short_break" or mode == "long_break") then
         base = current_label() .. " " .. sep_char .. " " .. base
     end
     if session_source_name ~= "" then set_text(session_source_name, session_text()) end
@@ -278,17 +287,18 @@ local function push_display()
         end
     end
     set_text(timer_source_name, base)
-    local cmap = { focus=color_focus, short_break=color_short_break, long_break=color_long_break, paused=color_paused, stopped=color_stopped }
+    local cmap = { starting_soon=color_starting_soon, focus=color_focus, short_break=color_short_break, long_break=color_long_break, paused=color_paused, stopped=color_stopped }
     set_color(timer_source_name, cmap[mode] or 0xFFFFFF)
     if status_source_name ~= "" then
-        local m = { focus=focus_message, short_break=short_break_message, long_break=long_break_message, paused=paused_message, stopped=stopped_message }
+        local m = { starting_soon=starting_soon_message, focus=focus_message, short_break=short_break_message, long_break=long_break_message, paused=paused_message, stopped=stopped_message }
         set_text(status_source_name, m[mode])
     end
 end
 
 local function set_mode(new_mode)
     mode = new_mode
-    if mode == "focus" then time_left = math.max(1, focus_minutes) * 60
+    if mode == "starting_soon" then time_left = math.max(1, starting_soon_minutes) * 60
+    elseif mode == "focus" then time_left = math.max(1, focus_minutes) * 60
     elseif mode == "short_break" then time_left = math.max(1, short_break_minutes) * 60
     elseif mode == "long_break" then time_left = math.max(1, long_break_minutes) * 60
     end
@@ -296,7 +306,11 @@ local function set_mode(new_mode)
 end
 
 local function end_of_segment()
-    if mode == "focus" then
+    if mode == "starting_soon" then
+        session_start_time = os.time()
+        switch_scene(scene_on_focus)
+        set_mode("focus")
+    elseif mode == "focus" then
         session_count = session_count + 1
         if sessions_before_long > 0 and (session_count % sessions_before_long == 0) then
             send_notification("Pomodoro Timer", string.format("Cycle complete! Long break: %d min", long_break_minutes))
@@ -336,12 +350,13 @@ function start_pressed(pressed)
     timer_running = true
     session_count = 0
     session_start_time = os.time()
-    set_mode("focus")
+    switch_scene(scene_starting_soon)
+    set_mode("starting_soon")
     obs.timer_add(tick, 1000)
 end
 
 function pause_pressed(pressed)
-    if pressed and timer_running and (mode=="focus" or mode=="short_break" or mode=="long_break") then prev_mode = mode; mode="paused"; push_display() end
+    if pressed and timer_running and (mode=="starting_soon" or mode=="focus" or mode=="short_break" or mode=="long_break") then prev_mode = mode; mode="paused"; push_display() end
 end
 
 function resume_pressed(pressed)
@@ -393,6 +408,9 @@ function script_properties()
     obs.obs_properties_add_color(p, "color_paused", "Color: Paused")
     obs.obs_properties_add_color(p, "color_stopped", "Color: Stopped")
 
+    obs.obs_properties_add_int(p, "starting_soon_minutes", "Starting Soon duration (min)", 1, 60, 1)
+    obs.obs_properties_add_text(p, "scene_starting_soon", "Starting Soon scene", obs.OBS_TEXT_DEFAULT)
+
     obs.obs_properties_add_bool(p, "auto_start_on_stream", "Auto-start when stream begins")
     obs.obs_properties_add_text(p, "auto_scene_name", "Auto-start on Scene", obs.OBS_TEXT_DEFAULT)
     obs.obs_properties_add_text(p, "scene_on_break", "Switch scene on Break", obs.OBS_TEXT_DEFAULT)
@@ -441,6 +459,9 @@ function script_update(s)
     color_long_break  = obs.obs_data_get_int(s, "color_long_break")
     color_paused = obs.obs_data_get_int(s, "color_paused")
     color_stopped= obs.obs_data_get_int(s, "color_stopped")
+
+    starting_soon_minutes = math.max(1, obs.obs_data_get_int(s, "starting_soon_minutes"))
+    scene_starting_soon   = obs.obs_data_get_string(s, "scene_starting_soon")
 
     auto_start_on_stream = obs.obs_data_get_bool(s, "auto_start_on_stream")
     auto_scene_name = obs.obs_data_get_string(s, "auto_scene_name")
