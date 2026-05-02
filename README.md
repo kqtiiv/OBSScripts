@@ -1,5 +1,3 @@
-｡ﾟﾟ･｡･ﾟﾟ｡  ₊˚⌗ 𓂃 ⊹  ꈍᴗꈍ  ⊹ 𓂃 ⌗˚₊  ｡ﾟﾟ･｡･ﾟﾟ｡
-
 # ⋒ OBS Pomodoro Timer ⋒
 
 ꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦
@@ -52,14 +50,14 @@
 
 Buttons are available in the script panel. You can also bind hotkeys under **File > Settings > Hotkeys** — search for "Pomodoro".
 
-| Action | What it does |
-|--------|--------------|
-| Start | Resets session count and starts the first focus block |
-| Pause | Freezes the timer mid-session |
-| Resume | Picks up from where you paused |
-| Reset | Stops everything and clears the display |
-| Skip | Immediately ends the current segment and moves to the next |
+| Action | What it does                                               |
+| ------ | ---------------------------------------------------------- |
+| Start  | Resets session count and starts the first focus block      |
+| Pause  | Freezes the timer mid-session                              |
+| Resume | Picks up from where you paused                             |
+| Reset  | Stops everything and clears the display                    |
+| Skip   | Immediately ends the current segment and moves to the next |
 
 ꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦꒷꒦
 
-　　₊˚ ꈍᴗꈍ ˚₊  ₊˚ ꈍᴗꈍ ˚₊  ₊˚ ꈍᴗꈍ ˚₊
+　　₊˚ ꈍᴗꈍ ˚₊ ₊˚ ꈍᴗꈍ ˚₊ ₊˚ ꈍᴗꈍ ˚₊

@@ -215,25 +215,7 @@ end
 
 local function play_source(src)
     if not src or not enable_sounds then return end
-    -- Try native restart; if fails, briefly toggle visible in current scene to force play
-    local ok = pcall(function() obs.obs_source_media_restart(src) end)
-    if not ok then
-        local cur = obs.obs_frontend_get_current_scene()
-        if cur then
-            local scene = obs.obs_scene_from_source(cur)
-            if scene then
-                local dup = obs.obs_scene_add(scene, src)
-                if dup then
-                    obs.obs_sceneitem_set_visible(dup, false)
-                    obs.timer_add(function() obs.obs_sceneitem_set_visible(dup, true) end, 10)
-                    obs.timer_add(function()
-                        obs.obs_sceneitem_remove(dup)
-                    end, 2000)
-                end
-            end
-            obs.obs_source_release(cur)
-        end
-    end
+    pcall(function() obs.obs_source_media_restart(src) end)
 end
 
 local function play_cue_for_next(next_mode)
@@ -243,13 +225,43 @@ local function play_cue_for_next(next_mode)
     end
 end
 
-local function switch_scene(name)
-    if not name or name == "" then return end
+local function frontend_event_handler(ev)
+    if ev == obs.OBS_FRONTEND_EVENT_STREAMING_STARTED and auto_start_on_stream and not timer_running then
+        start_pressed(true)
+    end
+    if ev == obs.OBS_FRONTEND_EVENT_SCENE_CHANGED and auto_scene_name ~= "" then
+        local cur = obs.obs_frontend_get_current_scene()
+        if cur then
+            local nm = obs.obs_source_get_name(cur)
+            if nm == auto_scene_name and not timer_running then start_pressed(true) end
+            obs.obs_source_release(cur)
+        end
+    end
+end
+
+local pending_scene = nil
+
+local function do_pending_switch()
+    obs.timer_remove(do_pending_switch)
+    if not pending_scene then return end
+    local name = pending_scene
+    pending_scene = nil
     local src = obs.obs_get_source_by_name(name)
     if src then
+        -- Unregister before switching to prevent the UI thread's
+        -- OBS_FRONTEND_EVENT_SCENE_CHANGED callback from trying to lock
+        -- the Lua state while the graphics thread already holds it.
+        obs.obs_frontend_remove_event_callback(frontend_event_handler)
         obs.obs_frontend_set_current_scene(src)
+        obs.obs_frontend_add_event_callback(frontend_event_handler)
         obs.obs_source_release(src)
     end
+end
+
+local function switch_scene(name)
+    if not name or name == "" then return end
+    pending_scene = name
+    obs.timer_add(do_pending_switch, 1)
 end
 
 -- Core 
@@ -312,6 +324,16 @@ local function end_of_segment()
         set_mode("focus")
     elseif mode == "focus" then
         session_count = session_count + 1
+        if daily_sessions > 0 and session_count >= daily_sessions then
+            send_notification("Pomodoro Timer", string.format("All %d sessions complete! End your stream whenever you're ready.", daily_sessions))
+            obs.timer_remove(tick)
+            timer_running = false
+            mode = "stopped"
+            time_left = 0
+            session_start_time = 0
+            push_display()
+            return
+        end
         if sessions_before_long > 0 and (session_count % sessions_before_long == 0) then
             send_notification("Pomodoro Timer", string.format("Cycle complete! Long break: %d min", long_break_minutes))
             switch_scene(scene_on_break)
@@ -347,6 +369,7 @@ end
 -- Controls 
 function start_pressed(pressed)
     if not pressed then return end
+    obs.timer_remove(tick)
     timer_running = true
     session_count = 0
     session_start_time = os.time()
@@ -407,6 +430,7 @@ function script_properties()
     obs.obs_properties_add_color(p, "color_long_break", "Color: Long Break")
     obs.obs_properties_add_color(p, "color_paused", "Color: Paused")
     obs.obs_properties_add_color(p, "color_stopped", "Color: Stopped")
+    obs.obs_properties_add_color(p, "color_starting_soon", "Color: Starting Soon")
 
     obs.obs_properties_add_int(p, "starting_soon_minutes", "Starting Soon duration (min)", 1, 60, 1)
     obs.obs_properties_add_text(p, "scene_starting_soon", "Starting Soon scene", obs.OBS_TEXT_DEFAULT)
@@ -459,6 +483,7 @@ function script_update(s)
     color_long_break  = obs.obs_data_get_int(s, "color_long_break")
     color_paused = obs.obs_data_get_int(s, "color_paused")
     color_stopped= obs.obs_data_get_int(s, "color_stopped")
+    color_starting_soon = obs.obs_data_get_int(s, "color_starting_soon")
 
     starting_soon_minutes = math.max(1, obs.obs_data_get_int(s, "starting_soon_minutes"))
     scene_starting_soon   = obs.obs_data_get_string(s, "scene_starting_soon")
@@ -472,7 +497,20 @@ function script_update(s)
     push_display()
 end
 
--- Hotkeys 
+function script_defaults(settings)
+    obs.obs_data_set_default_string(settings, "timer_source_name",  "Timer")
+    obs.obs_data_set_default_string(settings, "session_source_name", "Session")
+    obs.obs_data_set_default_int(settings, "focus_minutes",       50)
+    obs.obs_data_set_default_int(settings, "short_break_minutes", 10)
+    obs.obs_data_set_default_int(settings, "long_break_minutes",  10)
+    obs.obs_data_set_default_string(settings, "scene_starting_soon", "Starting Soon")
+    obs.obs_data_set_default_string(settings, "scene_on_break",      "Break Scene")
+    obs.obs_data_set_default_string(settings, "scene_on_focus",      "Focus")
+    obs.obs_data_set_default_int(settings, "color_starting_soon", 0x000000)
+    obs.obs_data_set_default_int(settings, "color_focus",         0xFFFFFF)
+end
+
+-- Hotkeys
 local function hk_load(settings, id, name)
     local arr = obs.obs_data_get_array(settings, name)
     obs.obs_hotkey_load(id, arr)
@@ -498,19 +536,7 @@ function script_load(settings)
     hk_load(settings, hk_reset, "pomo_reset")
     hk_load(settings, hk_skip,  "pomo_skip")
 
-    obs.obs_frontend_add_event_callback(function(ev)
-        if ev == obs.OBS_FRONTEND_EVENT_STREAMING_STARTED and auto_start_on_stream and not timer_running then
-            start_pressed(true)
-        end
-        if ev == obs.OBS_FRONTEND_EVENT_SCENE_CHANGED and auto_scene_name ~= "" then
-            local cur = obs.obs_frontend_get_current_scene()
-            if cur then
-                local nm = obs.obs_source_get_name(cur)
-                if nm == auto_scene_name and not timer_running then start_pressed(true) end
-                obs.obs_source_release(cur)
-            end
-        end
-    end)
+    obs.obs_frontend_add_event_callback(frontend_event_handler)
 end
 
 function script_save(settings)
