@@ -1,6 +1,6 @@
 obs = obslua
 
--- ==== Defaults ====
+-- Defaults
 timer_source_name = "PomodoroTimer"
 status_source_name = ""
 session_source_name = ""
@@ -30,13 +30,13 @@ end_time_inline = true
 sep_char = "•"
 use_24h = true
 
--- Sounds (non-blocking via media sources)
+-- Sounds 
 enable_sounds = true
 sound_focus_file = ""
 sound_short_file = ""
 sound_long_file  = ""
 
--- Colors (for timer text source)
+-- Colours
 color_focus = 0x00FF00
 color_short_break = 0xFFFF00
 color_long_break = 0xFF0000
@@ -46,7 +46,7 @@ color_stopped = 0xAAAAAA
 -- Desktop notifications
 enable_notifications = true
 
--- Auto-start / scene switching
+-- Auto-start
 auto_start_on_stream = false
 auto_scene_name = ""
 scene_on_break = ""
@@ -189,9 +189,9 @@ end
 
 -- Sounds 
 local function release_sound_sources()
-    if src_focus then obs.obs_source_release(src_focus); src_focus = nil end
-    if src_short then obs.obs_source_release(src_short); src_short = nil end
-    if src_long  then obs.obs_source_release(src_long);  src_long  = nil end
+    if src_focus then obs.obs_source_dec_active(src_focus); obs.obs_source_release(src_focus); src_focus = nil end
+    if src_short then obs.obs_source_dec_active(src_short); obs.obs_source_release(src_short); src_short = nil end
+    if src_long  then obs.obs_source_dec_active(src_long);  obs.obs_source_release(src_long);  src_long  = nil end
 end
 
 local function create_media_source(path, tag)
@@ -201,8 +201,10 @@ local function create_media_source(path, tag)
     obs.obs_data_set_bool(s, "is_local_file", true)
     obs.obs_data_set_bool(s, "looping", false)
     obs.obs_data_set_bool(s, "restart_on_activate", true)
+    obs.obs_data_set_bool(s, "close_when_inactive", false)
     local src = obs.obs_source_create_private("ffmpeg_source", "pomo_snd_"..tag, s)
     obs.obs_data_release(s)
+    if src then obs.obs_source_inc_active(src) end
     return src
 end
 
@@ -248,9 +250,6 @@ local function do_pending_switch()
     pending_scene = nil
     local src = obs.obs_get_source_by_name(name)
     if src then
-        -- Unregister before switching to prevent the UI thread's
-        -- OBS_FRONTEND_EVENT_SCENE_CHANGED callback from trying to lock
-        -- the Lua state while the graphics thread already holds it.
         obs.obs_frontend_remove_event_callback(frontend_event_handler)
         obs.obs_frontend_set_current_scene(src)
         obs.obs_frontend_add_event_callback(frontend_event_handler)
